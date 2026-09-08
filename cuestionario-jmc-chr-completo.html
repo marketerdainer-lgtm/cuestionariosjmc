@@ -374,15 +374,7 @@
   /* ---------------------------------------------------------------- */
   /* STORAGE                                                           */
   /* ---------------------------------------------------------------- */
-  /* ⚠️ CONFIGURACIÓN OBLIGATORIA:
-     Reemplaza el valor de abajo por tu propio endpoint de Formspree
-     (gratis, sin servidor). Pasos:
-     1) Entra a https://formspree.io y crea una cuenta gratis con tu correo.
-     2) Crea un formulario nuevo ("New Form"), ponle un nombre (ej. "JMC CHR").
-     3) Copia el enlace que te da, tipo https://formspree.io/f/xxxxabcd
-     4) Pégalo aquí abajo reemplazando "TU_FORM_ID_AQUI".
-     Cada respuesta enviada te llegará automáticamente a tu correo. */
-  var FORM_ENDPOINT = "https://formspree.io/f/TU_FORM_ID_AQUI";
+  var NOTIFY_EMAIL = "marketerdainer@gmail.com";
 
   function loadDraft(){
     try{
@@ -406,17 +398,6 @@
     autosaveTimer = setTimeout(saveDraft, 900);
   }
 
-  function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
-
-  async function withRetry(fn, attempts){
-    var lastErr = null;
-    for(var i=0;i<attempts;i++){
-      try{ return await fn(); }
-      catch(e){ lastErr = e; if(i < attempts-1) await sleep(700 * (i+1)); }
-    }
-    throw lastErr;
-  }
-
   function saveDraft(){
     try{
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ answers: state.answers, step: state.step }));
@@ -429,15 +410,17 @@
     }catch(e){ /* best effort, no bloquea el uso del formulario */ }
   }
 
-  function buildFieldsObject(){
-    var fields = { "Enviado el": new Date().toLocaleString('es-CO', { dateStyle:'medium', timeStyle:'short' }) };
+  function buildPlainText(){
+    var lines = [];
     BLOCKS.forEach(function(block){
+      var blockLines = [];
       block.questions.forEach(function(q){
         var val = formatAnswer(q, state.answers[q.id]);
-        if(val) fields['B'+block.id+' \u00b7 '+(q.label || (q.prefix+' '+q.suffix))] = val;
+        if(val) blockLines.push((q.label || (q.prefix+' '+q.suffix))+': '+val);
       });
+      if(blockLines.length) lines.push('BLOQUE '+block.id+' - '+block.title+'\n'+blockLines.join('\n'));
     });
-    return fields;
+    return lines.join('\n\n');
   }
 
   async function submitAnswers(){
@@ -447,26 +430,22 @@
     render();
     if(autosaveTimer){ clearTimeout(autosaveTimer); autosaveTimer = null; }
     try{
-      if(!FORM_ENDPOINT || FORM_ENDPOINT.indexOf("TU_FORM_ID_AQUI") > -1){
-        throw new Error("not-configured");
-      }
-      await withRetry(function(){
-        return fetch(FORM_ENDPOINT, {
-          method: "POST",
-          headers: { "Accept": "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify(buildFieldsObject())
-        }).then(function(r){ if(!r.ok) throw new Error("http-"+r.status); return r; });
-      }, 3);
+      downloadAnswers(); // respaldo automático, siempre, pase lo que pase
+      var full = buildPlainText();
+      var when = new Date().toLocaleString('es-CO');
+      var subject = "Respuestas cuestionario JMC CHR - " + when;
+      var MAX = 1500;
+      var bodyText = full.length > MAX
+        ? full.slice(0, MAX) + "\n\n[... continúa. Se descargó un archivo respuestas-jmc-chr.txt con el texto completo — adjúntalo a este correo antes de darle enviar ...]"
+        : full;
+      var mailto = "mailto:"+NOTIFY_EMAIL+"?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(bodyText);
+      window.location.href = mailto;
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       state.submitting = false;
       state.view = "done";
     }catch(e){
       state.submitting = false;
-      if(e && e.message === "not-configured"){
-        state.submitError = "Este formulario todavía no tiene configurado a dónde enviar las respuestas. (Falta reemplazar FORM_ENDPOINT en el código por tu enlace de Formspree.)";
-      }else{
-        state.submitError = "No se pudo enviar. Verifica tu conexión a internet e inténtalo de nuevo — tus respuestas siguen aquí, no se pierden. Si el problema sigue, descárgalas abajo como respaldo.";
-      }
+      state.submitError = "No se pudo abrir tu app de correo automáticamente. Ya se descargó un archivo de respaldo con tus respuestas abajo — mándalo por WhatsApp o correo manualmente a "+NOTIFY_EMAIL+".";
     }
     render();
     if(state.submitError) window.scrollTo(0, document.body.scrollHeight);
@@ -645,8 +624,8 @@
     return ''+
       '<div class="done">'+
         '<div class="check">✓</div>'+
-        '<h2>Respuestas enviadas</h2>'+
-        '<p>Gracias por tomarte el tiempo de documentar esto con detalle. Esta información se usará para entender mejor al cliente real del JMC CHR.</p>'+
+        '<h2>¡Casi listo!</h2>'+
+        '<p>Se descargó un archivo de respaldo con tus respuestas y se abrió tu app de correo con todo redactado. <b style="color:var(--text);">Revísala y dale "Enviar"</b> para que le llegue a '+esc(NOTIFY_EMAIL)+'. Si no se abrió ninguna app de correo, adjunta el archivo descargado y mándalo por WhatsApp o correo manualmente.</p>'+
         '<button type="button" class="btn btn-primary" data-action="restart">Diligenciar otra respuesta</button>'+
       '</div>';
   }
